@@ -1,0 +1,177 @@
+---
+title: "MTH6139 Time Series"
+subtitle: "Time Series Analysis of AI Venture Capital Investment"
+author: "Elion Qerimi"
+date: "12th March 2026"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+    highlight: tango
+---
+
+```{r, echo=FALSE}
+htmltools::img(src = knitr::image_uri("images/QMlogo.png"),
+               alt = 'logo',
+               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')
+```
+
+# Introduction
+
+The aim of this project is to analyse worldwide venture capital investment in artificial intelligence and to produce forecasts using Meta's Prophet model in R. Venture capital investment is a useful indicator of confidence in AI-related businesses, since it reflects how much funding investors are willing to commit to this sector.
+
+The dataset used in this project was downloaded from the OECD AI data portal. It contains yearly values of worldwide AI-related venture capital investment, measured in USD millions, from 2012 onwards.
+
+# Data description and preparation
+First, I will load the dataset and inspect its structure.
+
+```{r}
+ai_raw <- read.csv(file.path("Data", "data.csv"))
+
+head(ai_raw)
+names(ai_raw)
+str(ai_raw)
+summary(ai_raw)
+```
+
+The original dataset contains three columns: `Category`, `Quarter`, and `Sum_of_deals`. In this dataset, the `Quarter` column contains yearly values. Prophet requires the data to be stored in a dataframe with two columns called `ds` and `y`, where `ds` contains dates and `y` contains the numeric values to forecast.
+
+```{r}
+ai_data <- data.frame(
+  ds = as.Date(paste(ai_raw$Quarter, "-01-01", sep = "")),
+  y = ai_raw$Sum_of_deals
+)
+
+head(ai_data)
+summary(ai_data)
+```
+
+# Exploratory analysis
+
+Before fitting a forecasting model, it is useful to plot the time series.
+
+```{r}
+plot(ai_data$ds, ai_data$y,
+     type = "o",
+     col = "blue",
+     pch = 19,
+     lwd = 2,
+     xlab = "Year",
+     ylab = "Investment (USD millions)",
+     main = "Worldwide VC Investment in AI",
+     ylim = c(0, max(ai_data$y)))
+```
+
+To better understand the changes in the series, I display the yearly values of the dataset. 
+This allows me to verify the exact investment levels for each year and helps explain the movements observed in the plot above.
+
+```{r}
+print(ai_data)
+```
+The plot and data above suggest that worldwide venture capital investment in AI has generally increased over time. Unlike some of the seasonal time series studied in class, this dataset contains yearly observations, so there is no obvious seasonal pattern. Instead, the main feature is a strong upward trend. A particularly notable feature is the sharp increase in investment between 2020 and 2021, where investment more than doubled from 117,752 to 257,349 USD millions. After this peak, investment declined in 2022 and 2023 before increasing again in 2024 and 2025, reaching 258,674 USD millions in the final year of the dataset. These fluctuations may reflect wider economic conditions such as higher interest rates, a slowdown in the technology sector, and post-pandemic market adjustments.Overall, the data suggest a long-term upward trend in AI-related venture capital investment, despite short-term fluctuations in recent years.
+
+# A simple linear trend check
+
+As an additional check, I fit a simple linear regression of investment against time.
+
+```{r}
+ai_data$time_index <- 1:nrow(ai_data)
+
+linear_model <- lm(y ~ time_index, data = ai_data)
+summary(linear_model)
+```
+
+The slope coefficient 16950 means on average, AI venture capital investment increases by roughly 17000 million USD per year.This confirms the upward trend we saw in the plot.
+A p-value of 4.48e-05 is very small which implies the upward trend is statistically significant and unlikely to be due to random variation.
+Multiple R-Squared being 0.763 means the linear trend explains about 76% of the variation in AI VC investment. That is quite high, implying the trend captures most of the movement in the data.
+
+# Log transformation
+
+Because the level of the series increases substantially over time, it is also useful to consider a logarithmic transformation. This can reduce the effect of very large values and make the growth pattern easier to interpret.
+
+```{r}
+log_ai_data <- data.frame(
+  ds = ai_data$ds,
+  y = log(ai_data$y)
+)
+
+plot(log_ai_data$ds, log_ai_data$y,
+     type = "o",
+     col = "darkgreen",
+     pch = 19,
+     lwd = 2,
+     xlab = "Year",
+     ylab = "Log of investment (millions)",
+     main = "Log of Worldwide VC Investment in AI")
+```
+
+Compared to the original series, the logged data appears smoother and the growth pattern becomes more linear. This suggests that investment in AI may be growing at an approximately exponential rate over time, since exponential growth appears as a straight line when plotted on a logarithmic scale. However, some fluctuations are still visible, particularly around the peak in 2021 and the decline in 2022–2023.
+
+# Prophet forecasting model
+
+I now fit Meta's Prophet model to the original time series.
+
+```{r}
+library(prophet)
+
+ai_model <- prophet(ai_data,
+                    yearly.seasonality = FALSE,
+                    weekly.seasonality = FALSE,
+                    daily.seasonality = FALSE)
+```
+
+Since the dataset contains yearly observations, I switch off the seasonal components and focus on modelling the trend.
+
+# Forecasting future investment
+
+I forecast the series forward by 5 years.
+
+```{r}
+future_dates <- make_future_dataframe(ai_model, periods = 5, freq = "year")
+
+forecast <- predict(ai_model, future_dates)
+```
+
+# Forecast plot
+
+```{r}
+plot(ai_model, forecast,
+     xlab = "Year",
+     ylab = "Investment (USD millions)",
+     main = "Forecast of Worldwide VC Investment in AI")
+```
+
+The plot shows the Prophet forecast for worldwide AI venture capital investment. The black dots are the actual historical observations, while the blue line shows the model’s estimated trend and future predictions. The shaded area represents the uncertainty interval, showing the range where future investment values are likely to fall.
+
+The forecast suggests that AI investment will continue increasing over the next few years, following the strong upward trend seen in the data. The uncertainty bands become wider further into the future, which indicates that the predictions become less certain the further ahead we forecast.
+
+Some of the observed points lie noticeably above or below the predicted trend line, particularly the large spike around 2021. In some cases these points also fall outside or close to the edge of the uncertainty band. This suggests that the model does not fully capture sudden changes in investment levels. These deviations may reflect unusual market conditions, such as the surge in technology investment during the post-pandemic period.
+
+
+# Forecast values
+
+To inspect the forecast more closely, I display the last few fitted and forecast values below.
+
+```{r}
+tail(forecast)
+```
+
+The table above shows the last few values produced by the Prophet model. The first row corresponds to the final observed year in the dataset (2025), while the remaining rows show the model’s forecast for the next five years. The trend column represents the estimated underlying trend in AI venture capital investment. The values suggest that investment is expected to continue increasing steadily over the forecast horizon, reaching approximately 300,000 (USD millions) by 2030.This projection follows the strong upward trend observed in the historical data.
+
+# Discussion
+
+Overall, the results suggest that worldwide venture capital investment in AI has increased substantially over the period observed. Investment rises from 8,373.09 USD millions in 2012 to 258,673.96 USD millions in 2025, indicating strong long-term growth. However, the series also contains some noticeable short-term fluctuations. In particular, there is a sharp increase in 2021, followed by declines in 2022 and 2023, before investment begins to rise again in 2024 and 2025. This shows that although the overall trend is upward, investment levels can still change quickly in response to wider economic or market conditions.
+
+The Prophet model extends this trend into the future and suggests that AI-related venture capital investment may continue increasing over the next few years. However, the dataset is relatively short and consists of yearly observations, which limits the amount of detail the model can capture. Venture capital investment is also influenced by broader economic conditions, meaning that forecasts should be interpreted with some caution.
+
+# Conclusion
+
+This project analysed worldwide venture capital investment in AI using a time series dataset from the OECD AI data portal covering the period 2012–2025. The exploratory analysis showed a clear upward trend in investment over time, together with some fluctuations in recent years. A logarithmic transformation was also considered to help interpret the growth pattern of the series.
+
+A Prophet forecasting model was then fitted to the data, focusing on the long-term trend component. The results suggest that AI-related venture capital investment may continue increasing over the next five years, although uncertainty increases further into the future. Overall, the analysis demonstrates how Prophet can be used to model and forecast a modern business-related time series in a relatively simple and interpretable way.
+
+# References
+
+- OECD AI data portal: <https://oecd.ai/en/data>
+- Prophet documentation: <https://facebook.github.io/prophet/docs/quick_start.html#r-api>
